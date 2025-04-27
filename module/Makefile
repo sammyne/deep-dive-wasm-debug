@@ -29,7 +29,7 @@ lldb-cc: $(debugger) $(fibcc)
 	lldb -O 'settings set target.disable-aslr false' \
 		-o 'breakpoint set -n main' \
 		-o 'r' \
-		-o "breakpoint set -n 'fib'" \
+		-o "breakpoint set -n 'fib-cc'" \
 		-o 'c' \
 		-o 'n' \
 		-o 'p a' \
