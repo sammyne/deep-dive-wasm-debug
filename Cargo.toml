@@ -1,0 +1,7 @@
+[workspace]
+members = [
+  "debugger",
+  "fib-rs",
+]
+
+resolver = "2"

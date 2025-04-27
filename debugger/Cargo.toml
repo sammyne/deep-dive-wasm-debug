@@ -1,0 +1,11 @@
+[package]
+name = "debugger"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# v21 版的调试过程无法正确识别 rust 源码里面的符号。
+#wasmtime = "21.0.1"
+#wasmtime-wasi = "21.0.1"
+wasmtime = "32.0.0"
+wasmtime-wasi = "32.0.0"
