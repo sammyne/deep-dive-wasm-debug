@@ -70,6 +70,17 @@ RUN wget $REPO_URL/wasi_snapshot_preview1.command.wasm  &&\
   wget $REPO_URL/wasi_snapshot_preview1.reactor.wasm
 
 
+FROM busybox:1.36.1 AS wit-bindgen
+
+ARG WIT_BINDGEN_VERSION
+
+ENV REPO_URL=https://github.com/bytecodealliance/wit-bindgen/releases/download/v$WIT_BINDGEN_VERSION
+
+RUN wget $REPO_URL/wit-bindgen-$WIT_BINDGEN_VERSION-x86_64-linux.tar.gz
+
+RUN mkdir -p /output && tar -C /output --strip-components 1 -zxvf wit-bindgen-$WIT_BINDGEN_VERSION-x86_64-linux.tar.gz
+
+
 FROM busybox:1.36.1 AS rc
 
 WORKDIR /output
@@ -80,9 +91,11 @@ COPY --from=wasm-tools /output wasm-tools
 
 COPY --from=wasmtime /output wasmtime
 
+COPY --from=wit-bindgen /output wit-bindgen
+
 
 FROM rust
 
-ENV PATH=/opt/wasmtime:$PATH
+ENV PATH=/opt/wasmtime:/opt/wasm-tools:/opt/wit-bindgen:$PATH
 
 COPY --from=rc /output /opt

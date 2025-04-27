@@ -1,0 +1,26 @@
+package sammyne:helloworld@1.0.0;
+
+interface greeter {
+    use types.{hello-request, hello-reply};
+
+    say-hello: func(req: hello-request) -> hello-reply;
+}
+
+interface types {
+    record hello-request {
+        name: string,
+    }
+
+    record hello-reply {
+        message: string,
+    }
+}
+
+/// An example world for the component to target.
+world helloworld {
+    use types.{hello-request, hello-reply};
+
+    export greeter;
+
+    export say-hello-again: func(req: hello-request) -> hello-reply;
+}
