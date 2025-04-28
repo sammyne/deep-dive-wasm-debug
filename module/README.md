@@ -1,10 +1,11 @@
 # Debug module
 
-## Environment
+## 1. Environment
 - wasmtime 32.0.0
 - wasi-sdk 22.0
+- LLDB 18.1.8
 
-## Source codes
+## 2. Source codes
 ### fib-cc/lib.cc: C++ source codes
 ```c++
 #include <cstdint>
@@ -14,13 +15,18 @@ extern "C" uint32_t fib(uint32_t n) {
   uint32_t a = 1;
   uint32_t b = 1;
 
+  hello h{
+    .ptr = (const uint8_t*)"hello world",
+    .len = sizeof("hello world"),
+  };
+
   for(int i=0; i<n; ++i) {
     auto t = a;
     a = b;
     b += t;
   }
 
-  return b;
+  return b + h.ptr[1];
 }
 ```
 
@@ -87,22 +93,28 @@ clean:
 	$(MAKE) -C fib-cc clean
 ```
 
-## Using export name as 'fib'
-
-Running `make lldb-cc` with `__attribute__((__export_name__("fib")))` in fib-cc/lib.cc gives me expected output as
+## 3. Problem reproduction
 
 ```bash
-root@eafb8747aaf8:/workspace/module# make lldb-cc
-cargo build -r -p debugger
-   Compiling debugger v0.1.0 (/workspace/module/debugger)
-    Finished `release` profile [optimized] target(s) in 1.36s
+make lldb-cc
+```
+
+Logs go as
+```bash
+root@bd04aefd8e7c:/workspace/module# make lldb-cc
 lldb -O 'settings set target.disable-aslr false' \
         -o 'breakpoint set -n main' \
         -o 'r' \
         -o "breakpoint set -n 'fib'" \
         -o 'c' \
         -o 'n' \
-        -o 'p a' \
+        -o 'n' \
+        -o 'n' \
+        -o 'expr (void)__vmctx->set()' \
+        -o 'p *h.ptr' \
+        -o 'expr *(char(*)[12])(&(__vmctx.memory[1024]))' \
+        -o 'p *(char(*)[12])(&h.ptr)' \
+        -o 'p *(char(*)[12])(h.ptr)' \
         -- target/release/debugger fib-cc/build/fib-cc.wasm
 (lldb) settings set target.disable-aslr false
 (lldb) target create "target/release/debugger"
@@ -111,88 +123,85 @@ Current executable set to '/workspace/module/target/release/debugger' (x86_64).
 (lldb) breakpoint set -n main
 Breakpoint 1: where = debugger`main, address = 0x00000000000baac0
 (lldb) r
-Process 93176 launched: '/workspace/module/target/release/debugger' (x86_64)
-Process 93176 stopped
+Process 5041 launched: '/workspace/module/target/release/debugger' (x86_64)
+Process 5041 stopped
 * thread #1, name = 'debugger', stop reason = breakpoint 1.1
-    frame #0: 0x0000559dedb3aac0 debugger`main
+    frame #0: 0x0000557f8015aac0 debugger`main
 debugger`main:
-->  0x559dedb3aac0 <+0>: pushq  %rax
-    0x559dedb3aac1 <+1>: movq   %rsi, %rcx
-    0x559dedb3aac4 <+4>: movslq %edi, %rdx
-    0x559dedb3aac7 <+7>: leaq   -0x59e(%rip), %rax ; debugger::main::h4a2646090ba600e9
+->  0x557f8015aac0 <+0>: pushq  %rax
+    0x557f8015aac1 <+1>: movq   %rsi, %rcx
+    0x557f8015aac4 <+4>: movslq %edi, %rdx
+    0x557f8015aac7 <+7>: leaq   -0x59e(%rip), %rax ; debugger::main::h4a2646090ba600e9
 (lldb) breakpoint set -n 'fib'
 Breakpoint 2: no locations (pending).
 WARNING:  Unable to resolve breakpoint to any actual locations.
 (lldb) c
 1 location added to breakpoint 2
-Process 93176 resuming
-Process 93176 stopped
+Process 5041 resuming
+Process 5041 stopped
 * thread #1, name = 'debugger', stop reason = breakpoint 2.1
-    frame #0: 0x00007ff04c07b013 JIT(0x559def806040)`fib(n=6) at lib.cc:6:12
-   3    // export_name 之后才能找到调试符号。
-   4    __attribute__((__export_name__("fib")))
-   5    extern "C" uint32_t fib(uint32_t n) {
--> 6      uint32_t a = 1;
-   7      uint32_t b = 1;
-   8   
-   9      for(int i=0; i<n; ++i) {
+    frame #0: 0x00007fcd740f4015 JIT(0x557f812a0590)`fib(n=6) at lib.cc:13:12
+   10   // 调试符号应该用 C 的函数名，而不是 export-name。
+   11   __attribute__((__export_name__("fib-cc")))
+   12   extern "C" uint32_t fib(uint32_t n) {
+-> 13     uint32_t a = 1;
+   14     uint32_t b = 1;
+   15  
+   16     hello h{.ptr = (const uint8_t*)"hello world", .len = sizeof("hello world")};
 (lldb) n
-Process 93176 stopped
+Process 5041 stopped
 * thread #1, name = 'debugger', stop reason = step over
-    frame #0: 0x00007ff04c07b020 JIT(0x559def806040)`fib(n=6) at lib.cc:7:12
-   4    __attribute__((__export_name__("fib")))
-   5    extern "C" uint32_t fib(uint32_t n) {
-   6      uint32_t a = 1;
--> 7      uint32_t b = 1;
-   8   
-   9      for(int i=0; i<n; ++i) {
-   10       auto t = a;
-(lldb) p a
-(uint32_t) 1
-```
-
-## Problem: using export name as 'fib-cc' gives unexpected output
-
-Running `make lldb-cc` with 
-- `__attribute__((__export_name__("fib-cc")))` in fib-cc/lib.cc
-- renaming target func as 'fib-cc' in debugger/src/main.rs
-gives me unexpected output as
-
-```bash
-root@eafb8747aaf8:/workspace/module# make lldb-cc
-lldb -O 'settings set target.disable-aslr false' \
-        -o 'breakpoint set -n main' \
-        -o 'r' \
-        -o "breakpoint set -n 'fib-cc'" \
-        -o 'c' \
-        -o 'n' \
-        -o 'p a' \
-        -- target/release/debugger fib-cc/build/fib-cc.wasm
-(lldb) settings set target.disable-aslr false
-(lldb) target create "target/release/debugger"
-Current executable set to '/workspace/module/target/release/debugger' (x86_64).
-(lldb) settings set -- target.run-args  "fib-cc/build/fib-cc.wasm"
-(lldb) breakpoint set -n main
-Breakpoint 1: where = debugger`main, address = 0x00000000000baac0
-(lldb) r
-Process 103930 launched: '/workspace/module/target/release/debugger' (x86_64)
-Process 103930 stopped
-* thread #1, name = 'debugger', stop reason = breakpoint 1.1
-    frame #0: 0x000055557f202ac0 debugger`main
-debugger`main:
-->  0x55557f202ac0 <+0>: pushq  %rax
-    0x55557f202ac1 <+1>: movq   %rsi, %rcx
-    0x55557f202ac4 <+4>: movslq %edi, %rdx
-    0x55557f202ac7 <+7>: leaq   -0x59e(%rip), %rax ; debugger::main::h4a2646090ba600e9
-(lldb) breakpoint set -n 'fib-cc'
-Breakpoint 2: no locations (pending).
-WARNING:  Unable to resolve breakpoint to any actual locations.
-(lldb) c
-fib(6) = 21
-Process 103930 resuming
-Process 103930 exited with status = -1 (0xffffffff) lost connection
+    frame #0: 0x00007fcd740f4022 JIT(0x557f812a0590)`fib(n=6) at lib.cc:14:12
+   11   __attribute__((__export_name__("fib-cc")))
+   12   extern "C" uint32_t fib(uint32_t n) {
+   13     uint32_t a = 1;
+-> 14     uint32_t b = 1;
+   15  
+   16     hello h{.ptr = (const uint8_t*)"hello world", .len = sizeof("hello world")};
+   17
 (lldb) n
-error: Command requires a process which is currently stopped.
+Process 5041 stopped
+* thread #1, name = 'debugger', stop reason = step over
+    frame #0: 0x00007fcd740f402f JIT(0x557f812a0590)`fib(n=6) at lib.cc:16:9
+   13     uint32_t a = 1;
+   14     uint32_t b = 1;
+   15  
+-> 16     hello h{.ptr = (const uint8_t*)"hello world", .len = sizeof("hello world")};
+   17  
+   18     for(int i=0; i<n; ++i) {
+   19       auto t = a;
+(lldb) n
+Process 5041 stopped
+* thread #1, name = 'debugger', stop reason = step over
+    frame #0: 0x00007fcd740f4069 JIT(0x557f812a0590)`fib(n=6) at lib.cc:18:11
+   15  
+   16     hello h{.ptr = (const uint8_t*)"hello world", .len = sizeof("hello world")};
+   17  
+-> 18     for(int i=0; i<n; ++i) {
+   19       auto t = a;
+   20       a = b;
+   21       b += t;
+(lldb) expr (void)__vmctx->set()
+(lldb) p *h.ptr
+(const uint8_t) 'h'
+(lldb) expr *(char(*)[12])(&(__vmctx.memory[1024]))
+(char[12]) $0 = "hello world"
+  Evaluated this expression after applying Fix-It(s):
+    *(char(*)[12])(&(__vmctx->memory[1024]))
+(lldb) p *(char(*)[12])(&h.ptr)
+(char[12]) "\0\U00000004\0\0\0\0\0\0\f"
+(lldb) p *(char(*)[12])(h.ptr)
+error: <user expression 5>:1:2: cannot cast from type 'WebAssemblyPtrWrapper<const uint8_t>' to pointer type 'char (*)[12]'
+    1 | *(char(*)[12])(h.ptr)
+      |  ^~~~~~~~~~~~~~~~~~~~
 ```
 
-Why LLDB cannot find symbol exported name 'fib-cc'?
+The log indicates that `p *(char(*)[12])(h.ptr)` failed to convert `h.ptr` as a readable c-str of 12 char (which it actually is).
+
+Two questions:
+1. How can I convert `WebAssemblyPtrWrapper<const uint8_t>` as `*(char(*)[12])` for printing?
+2. How to resolve failure to set breakpoint on 'fib' symbol with errors as
+    ```bash
+    Breakpoint 2: no locations (pending).
+    WARNING:  Unable to resolve breakpoint to any actual locations.
+    ```

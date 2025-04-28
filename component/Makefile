@@ -10,22 +10,15 @@ guest/out/app.wasm:
 	make -C guest
 
 lldb: guest/out/app.wasm build-host
-# 	lldb -- host-rs/target/release/host -p $< -n sammyne
-# lldb-cc: $(debugger) $(fibcc)
 	lldb -O 'settings set target.disable-aslr false' \
 		-o 'breakpoint set -n main' \
 		-o 'r' \
-		-o 'breakpoint set -n say-hello-again' \
+		-o 'breakpoint set -n __wasm_export_helloworld_say_hello_again' \
 		-o 'c' \
+		-o 'expr (void)__vmctx->set()' \
 		-o 'n' \
-		-o 'p a' \
 		-- host-rs/target/release/host -p $< -n 'alice'
 
-lldb-scratch: guest/out/app.wasm build-host
-	lldb -O 'settings set target.disable-aslr false' \
-		-o 'breakpoint set -n main' \
-		-o 'r' \
-		-- host-rs/target/release/host -p $< -n 'alice'
 
 run: guest/out/app.wasm build-host
 	host-rs/target/release/host -p $< -n sammyne
